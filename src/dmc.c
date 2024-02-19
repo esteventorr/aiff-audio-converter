@@ -1,9 +1,12 @@
 #include <stdio.h>
 #include <string.h>
+#include "../include/userInterface.h"
 
 // Array de formatos válidos
 const char *validFormats[] = {"mp3", "wav", "aac", "flac", "ogg"};
 const int validFormatsCount = sizeof(validFormats) / sizeof(validFormats[0]);
+UserInterface ui;
+
 
 int outputErrorMessage(const char *message)
 {
@@ -87,6 +90,7 @@ int main(int argc, char *argv[])
 {
     char *filePath;
     char *encoding;
+    
 
     // Verifica los argumentos y obtiene filePath y encoding si están presentes
     if (checkComingArgs(argc, argv, &filePath, &encoding) == 0)
@@ -104,6 +108,10 @@ int main(int argc, char *argv[])
         // Hubo un error, termina la ejecución
         return 1; // Código de error
     }
+
+
+
+    
 
     // Si llegamos aquí, significa que no hubo error
     // Continúa con la ejecución del programa
