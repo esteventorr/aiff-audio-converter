@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <pthread.h>
+#include <limits.h>
 
 // Array de formatos válidos
 const char *validFormats[] = {"mp3", "wav", "aac", "flac", "ogg"};
@@ -267,7 +268,17 @@ void process_files_parallel(const char *directoryPath, const char *encoding, cha
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
-        data->inputFilePath = strdup(filesList[i]); // Copiar la ruta del archivo
+        // Calcular el tamaño necesario para la ruta completa
+        char *fullPath = malloc(PATH_MAX);
+        if (!fullPath) {
+            fprintf(stderr, "Error de asignación de memoria.\n");
+            exit(1);
+        }
+
+        // Construir la ruta completa
+        snprintf(fullPath, PATH_MAX, "%s/%s", directoryPath, filesList[i]);
+
+        data->inputFilePath = fullPath; // Usar la ruta completa strdup(filesList[i]); // Copiar la ruta del archivo
         if (!data->inputFilePath) {
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
