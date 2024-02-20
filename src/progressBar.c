@@ -17,7 +17,7 @@ void initProgressBar(ProgressBar* bar, int total, int current, char* label, char
 // Function to update the progress bar
 void updateProgressBar(ProgressBar* bar, int progress) {
     if (progress < 0 || progress > bar->total) {
-        printf("Error: Invalid progress value.\n");
+        printf("Error: Invalid progress value. %d %d\n",bar->total,progress);
         return;
     }
     bar->current = progress;

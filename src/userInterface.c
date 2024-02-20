@@ -1,12 +1,21 @@
 #include "../include/userInterface.h"
 #include "../include/progressBarList.h"
+#include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
+
+typedef struct 
+{
+    ProgressBarList* progressBarList;
+    int stopFlag;
+} ThreadArgs;
+
 
 ProgressBar* createDefaultProgressBar(UserInterface *ui,char* label){
 
     ProgressBar* bar = malloc(sizeof(ProgressBar));
-    ProgressBarNode* barNode = malloc(sizeof(ProgressBar));
+    ProgressBarNode* barNode = malloc(sizeof(ProgressBarNode));
 
 
     initProgressBar(bar, 100, 0, label, "=", "[", "]");
@@ -15,8 +24,8 @@ ProgressBar* createDefaultProgressBar(UserInterface *ui,char* label){
     barNode->progressBar = bar;
 
     appendProgressBar(&ui->barList,barNode);
-    
 
+    return bar;    
 
 
     
@@ -26,20 +35,25 @@ ProgressBar* createDefaultProgressBar(UserInterface *ui,char* label){
 //TODO: Implement thread mutex, that's the lines are commented
 void* print_bars(void* arg) {
 
-    ProgressBarList *progressBarList = (ProgressBarList *)arg;
-    ProgressBarNode *actualProgressBar =  progressBarList->head;
+    ThreadArgs *threadArgs = arg;
 
+    ProgressBarList* progressBarList = threadArgs->progressBarList;
+
+    ProgressBarNode *actualProgressBar;
     while (1)
     {
+        actualProgressBar =  progressBarList->head;
+        
         while(actualProgressBar != NULL) {
-        //pthread_mutex_lock(&lock);
         printProgressBar(actualProgressBar->progressBar);
 
         actualProgressBar = actualProgressBar->next;
-        //TODO: Modify this line so it works with n bars
-        //pthread_mutex_unlock(&lock);
+
     }
+    if(threadArgs->stopFlag){break;}
+
     printf("\033[%dA",progressBarList->length);
+
     }
     
     

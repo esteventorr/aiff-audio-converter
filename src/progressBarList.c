@@ -9,6 +9,8 @@ void appendProgressBar(ProgressBarList *barList,ProgressBarNode *progressBarNode
     }else{;
         barList->tail->next = progressBarNode;
         barList->tail++;
+        barList->length++;
     }
     barList->tail = progressBarNode;
+    
 }
