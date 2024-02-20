@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <pthread.h>
 
 // Array de formatos válidos
 const char *validFormats[] = {"mp3", "wav", "aac", "flac", "ogg"};
@@ -240,29 +241,69 @@ void convert_to_format(const char *input_file, const char *output_format)
     }
 }
 
+// Definición de estructura para pasar datos al hilo
+struct ThreadData {
+    char *inputFilePath;
+    char *outputFormat;
+};
+
+// Función que será ejecutada por cada hilo
+void *threadConvert(void *arg) {
+    struct ThreadData *data = (struct ThreadData *)arg;
+    convert_to_format(data->inputFilePath, data->outputFormat);
+    free(data->inputFilePath); // Liberar memoria asignada en el hilo
+    free(data); // Liberar estructura ThreadData
+    pthread_exit(NULL);
+}
+
+void process_files_parallel(const char *directoryPath, const char *encoding, char **filesList, int filesCount) {
+    pthread_t threads[filesCount];
+    int i;
+
+    // Iterar sobre la lista de archivos y crear un hilo para cada uno
+    for (i = 0; i < filesCount; i++) {
+        struct ThreadData *data = malloc(sizeof(struct ThreadData));
+        if (!data) {
+            fprintf(stderr, "Error de asignación de memoria.\n");
+            exit(1);
+        }
+        data->inputFilePath = strdup(filesList[i]); // Copiar la ruta del archivo
+        if (!data->inputFilePath) {
+            fprintf(stderr, "Error de asignación de memoria.\n");
+            exit(1);
+        }
+        data->outputFormat = strdup(encoding); // Copiar el formato de salida
+        if (!data->outputFormat) {
+            fprintf(stderr, "Error de asignación de memoria.\n");
+            exit(1);
+        }
+        // Crear un hilo para convertir el archivo
+        if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0) {
+            fprintf(stderr, "Error al crear hilo.\n");
+            exit(1);
+        }
+    }
+
+    // Esperar a que todos los hilos terminen
+    for (i = 0; i < filesCount; i++) {
+        pthread_join(threads[i], NULL);
+    }
+}
+
 void process_files(const char *directoryPath, const char *encoding, char **filesList, int filesCount)
 {
     char inputFilePath[512];
     char outputFilePath[512];
 
-    for (int i = 0; i < filesCount; i++)
+    // Verificar si hay archivos AIFF para procesar
+    if (filesCount == 0)
     {
-        // Construye la ruta completa del archivo de entrada
-        snprintf(inputFilePath, sizeof(inputFilePath), "%s/%s", directoryPath, filesList[i]);
-
-        // Construye la ruta completa del archivo de salida
-        // Primero, quita la extensión .aif/.aiff y luego añade el formato de salida
-        strncpy(outputFilePath, inputFilePath, sizeof(outputFilePath) - 1);
-        outputFilePath[sizeof(outputFilePath) - 1] = '\0'; // Asegúrate de que la cadena esté terminada
-        char *dot = strrchr(outputFilePath, '.');
-        if (dot)
-            *dot = '\0'; // Elimina la extensión
-        strcat(outputFilePath, ".");
-        strcat(outputFilePath, encoding); // Añade la nueva extensión
-
-        // Llama a convert_to_format para este archivo
-        convert_to_format(inputFilePath, encoding); // Ajusta según sea necesario
+        fprintf(stderr, "No hay archivos AIFF para procesar en el directorio especificado.\n");
+        return;
     }
+
+    // Llamar a la función para procesar los archivos en paralelo
+    process_files_parallel(directoryPath, encoding, filesList, filesCount);
 }
 
 int main(int argc, char *argv[])
