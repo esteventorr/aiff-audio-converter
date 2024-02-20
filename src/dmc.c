@@ -243,34 +243,40 @@ void convert_to_format(const char *input_file, const char *output_format)
 }
 
 // Definición de estructura para pasar datos al hilo
-struct ThreadData {
+struct ThreadData
+{
     char *inputFilePath;
     char *outputFormat;
 };
 
 // Función que será ejecutada por cada hilo
-void *threadConvert(void *arg) {
+void *threadConvert(void *arg)
+{
     struct ThreadData *data = (struct ThreadData *)arg;
     convert_to_format(data->inputFilePath, data->outputFormat);
     free(data->inputFilePath); // Liberar memoria asignada en el hilo
-    free(data); // Liberar estructura ThreadData
+    free(data);                // Liberar estructura ThreadData
     pthread_exit(NULL);
 }
 
-void process_files_parallel(const char *directoryPath, const char *encoding, char **filesList, int filesCount) {
+void process_files_parallel(const char *directoryPath, const char *encoding, char **filesList, int filesCount)
+{
     pthread_t threads[filesCount];
     int i;
 
     // Iterar sobre la lista de archivos y crear un hilo para cada uno
-    for (i = 0; i < filesCount; i++) {
+    for (i = 0; i < filesCount; i++)
+    {
         struct ThreadData *data = malloc(sizeof(struct ThreadData));
-        if (!data) {
+        if (!data)
+        {
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
         // Calcular el tamaño necesario para la ruta completa
         char *fullPath = malloc(PATH_MAX);
-        if (!fullPath) {
+        if (!fullPath)
+        {
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
@@ -279,24 +285,28 @@ void process_files_parallel(const char *directoryPath, const char *encoding, cha
         snprintf(fullPath, PATH_MAX, "%s/%s", directoryPath, filesList[i]);
 
         data->inputFilePath = fullPath; // Usar la ruta completa strdup(filesList[i]); // Copiar la ruta del archivo
-        if (!data->inputFilePath) {
+        if (!data->inputFilePath)
+        {
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
         data->outputFormat = strdup(encoding); // Copiar el formato de salida
-        if (!data->outputFormat) {
+        if (!data->outputFormat)
+        {
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
         // Crear un hilo para convertir el archivo
-        if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0) {
+        if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0)
+        {
             fprintf(stderr, "Error al crear hilo.\n");
             exit(1);
         }
     }
 
     // Esperar a que todos los hilos terminen
-    for (i = 0; i < filesCount; i++) {
+    for (i = 0; i < filesCount; i++)
+    {
         pthread_join(threads[i], NULL);
     }
 }
@@ -356,12 +366,52 @@ int main(int argc, char *argv[])
             {
                 printf("Advertencia: El parámetro -e= no es necesario para la conversión de un único archivo AIFF.\n");
             }
-            // Procesar el archivo AIFF individual
-            for (int i = 0; i < sizeof(validFormats) / sizeof(validFormats[0]); ++i)
+
+            pthread_t threads[validFormatsCount]; // Creamos un arreglo de hilos
+
+            // Creamos un hilo para cada formato y realizamos la conversión en paralelo
+            for (int i = 0; i < validFormatsCount; ++i)
             {
-                convert_to_format(filePath, validFormats[i]);
-                // Después de esta función, podrías obtener el tamaño del archivo de salida
-                // y mostrarlo junto con el nombre del archivo al usuario.
+                // Creamos una estructura ThreadData para pasar los datos al hilo
+                struct ThreadData *data = malloc(sizeof(struct ThreadData));
+                if (!data)
+                {
+                    fprintf(stderr, "Error de asignación de memoria.\n");
+                    return 1;
+                }
+
+                // Configuramos los datos para este hilo
+                data->inputFilePath = strdup(filePath);
+                if (!data->inputFilePath)
+                {
+                    fprintf(stderr, "Error de asignación de memoria.\n");
+                    free(data);
+                    return 1;
+                }
+                data->outputFormat = strdup(validFormats[i]);
+                if (!data->outputFormat)
+                {
+                    fprintf(stderr, "Error de asignación de memoria.\n");
+                    free(data->inputFilePath);
+                    free(data);
+                    return 1;
+                }
+
+                // Creamos el hilo
+                if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0)
+                {
+                    fprintf(stderr, "Error al crear hilo.\n");
+                    free(data->inputFilePath);
+                    free(data->outputFormat);
+                    free(data);
+                    return 1;
+                }
+            }
+
+            // Esperamos a que todos los hilos terminen
+            for (int i = 0; i < validFormatsCount; ++i)
+            {
+                pthread_join(threads[i], NULL);
             }
         }
         else
