@@ -5,10 +5,36 @@
 #include <dirent.h>
 #include <pthread.h>
 #include <limits.h>
+#include <libgen.h>
 
 // Array de formatos válidos
 const char *validFormats[] = {"mp3", "wav", "aac", "flac", "ogg"};
 const int validFormatsCount = sizeof(validFormats) / sizeof(validFormats[0]);
+
+void listConvertedFiles(const char *tempDir) {
+    DIR *dir;
+    struct dirent *entry;
+    struct stat fileInfo;
+    char filePath[PATH_MAX];
+    int i = 0; // Iniciar contador en 0
+
+    if ((dir = opendir(tempDir)) == NULL) {
+        perror("opendir() error");
+        return;
+    }
+
+    printf("Archivos convertidos disponibles:\n");
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) { // Si es un archivo regular
+            snprintf(filePath, sizeof(filePath), "%s/%s", tempDir, entry->d_name);
+            if (stat(filePath, &fileInfo) == 0) {
+                double sizeInMb = fileInfo.st_size / (1024.0 * 1024.0);
+                printf("[%d] (%.2fMB) %s\n", i++, sizeInMb, filePath);
+            }
+        }
+    }
+    closedir(dir);
+}
 
 int outputErrorMessage(const char *message)
 {
@@ -168,30 +194,31 @@ int processDirectory(const char *directoryPath, char ***filesList, int *listSize
     return 1; // Success
 }
 
-void convert_to_format(const char *input_file, const char *output_format)
+void convert_to_format(const char *input_file, const char *output_format, const char *tempDir)
 {
     char output_file[512];
-    char base_name[512];
-    char *dot;
-
-    strncpy(base_name, input_file, sizeof(base_name) - 1);
-    base_name[sizeof(base_name) - 1] = '\0'; // Asegura que la cadena esté terminada
-
-    dot = strrchr(base_name, '.');
-    if (dot && (strcmp(dot, ".aif") == 0 || strcmp(dot, ".aiff") == 0))
-    {
-        *dot = '\0';
-    }
-
-    // Asegurarse de que la combinación de base_name y output_format no exceda el límite
-    size_t total_length = strlen(base_name) + strlen(output_format) + 1; // +1 por el punto
-    if (total_length >= sizeof(output_file) - 1)
-    {
-        fprintf(stderr, "El nombre del archivo de salida es demasiado largo.\n");
+    // Hacemos una copia del input_file para usar con basename, ya que puede modificar la entrada
+    char *input_copy = strdup(input_file);
+    if (!input_copy) {
+        perror("Error al duplicar el nombre del archivo");
         return;
     }
 
-    snprintf(output_file, sizeof(output_file), "%s.%s", base_name, output_format);
+    // Obtiene el nombre base del archivo (sin la ruta)
+    char *base = basename(input_copy); // basename() podría alterar input_copy
+
+    // Encuentra y elimina la extensión .aif o .aiff
+    char *dot = strrchr(base, '.');
+    if (dot && (strcmp(dot, ".aif") == 0 || strcmp(dot, ".aiff") == 0)) {
+        *dot = '\0'; // Corta la cadena en el punto, eliminando la extensión
+    }
+
+    // Construye la ruta de salida en la carpeta temporal sin la extensión original .aif o .aiff
+    snprintf(output_file, sizeof(output_file), "%s/%s.%s", tempDir, base, output_format);
+
+    // Aquí sigue el resto de tu función convert_to_format...
+
+    free(input_copy); // Libera la memoria de la copia del nombre del archivo
 
     char command[1024];
 
@@ -247,15 +274,18 @@ struct ThreadData
 {
     char *inputFilePath;
     char *outputFormat;
+    char *tempDir; // Nuevo campo para el directorio temporal
 };
 
 // Función que será ejecutada por cada hilo
 void *threadConvert(void *arg)
 {
     struct ThreadData *data = (struct ThreadData *)arg;
-    convert_to_format(data->inputFilePath, data->outputFormat);
-    free(data->inputFilePath); // Liberar memoria asignada en el hilo
-    free(data);                // Liberar estructura ThreadData
+    convert_to_format(data->inputFilePath, data->outputFormat, data->tempDir);
+    free(data->inputFilePath);
+    free(data->outputFormat);
+    free(data->tempDir); // Liberar memoria asignada en el hilo
+    free(data);          // Liberar estructura ThreadData
     pthread_exit(NULL);
 }
 
@@ -367,6 +397,16 @@ int main(int argc, char *argv[])
                 printf("Advertencia: El parámetro -e= no es necesario para la conversión de un único archivo AIFF.\n");
             }
 
+            // Antes de iniciar la conversión en paralelo
+            char tempDirTemplate[] = "/tmp/myapp-XXXXXX";
+            char *tempDir = mkdtemp(tempDirTemplate);
+            if (tempDir == NULL)
+            {
+                perror("Error al crear directorio temporal");
+                exit(EXIT_FAILURE); // Asegúrate de manejar este error adecuadamente
+            }
+            printf("Directorio temporal creado en: %s\n", tempDir);
+
             pthread_t threads[validFormatsCount]; // Creamos un arreglo de hilos
 
             // Creamos un hilo para cada formato y realizamos la conversión en paralelo
@@ -379,6 +419,8 @@ int main(int argc, char *argv[])
                     fprintf(stderr, "Error de asignación de memoria.\n");
                     return 1;
                 }
+
+                data->tempDir = strdup(tempDir);
 
                 // Configuramos los datos para este hilo
                 data->inputFilePath = strdup(filePath);
@@ -413,6 +455,8 @@ int main(int argc, char *argv[])
             {
                 pthread_join(threads[i], NULL);
             }
+
+            listConvertedFiles(tempDir); // Listar los archivos convertidos
         }
         else
         {
