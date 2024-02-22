@@ -12,5 +12,5 @@ typedef struct
 
 int enableSelectView(SelectView* selectView);
 
-SelectView* createSelectView(char* requestPrompt, char** selections,int numSelections,char* answerPrompt);
+SelectView* createSelectView(char* requestPrompt, char **selections,int numSelections,char* answerPrompt);
 #endif

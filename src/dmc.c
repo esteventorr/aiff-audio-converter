@@ -2,35 +2,47 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../include/userInterface.h"
+#include "../include/selectView.h"
 #include <sys/stat.h>
 #include <dirent.h>
 #include <pthread.h>
 #include <limits.h>
 #include <libgen.h>
-
+#define BUFFER_SIZE 1024
 // Array de formatos válidos
 const char *validFormats[] = {"mp3", "wav", "aac", "flac", "ogg"};
 const int validFormatsCount = sizeof(validFormats) / sizeof(validFormats[0]);
 UserInterface ui;
 
+typedef struct
+{
+    char *fileFormat;
+    char *audioBuffer;
+    double fileSize;
+} ConvertedAudioBuffer;
 
-void listConvertedFiles(const char *tempDir) {
+void listConvertedFiles(const char *tempDir)
+{
     DIR *dir;
     struct dirent *entry;
     struct stat fileInfo;
     char filePath[PATH_MAX];
     int i = 0; // Iniciar contador en 0
 
-    if ((dir = opendir(tempDir)) == NULL) {
+    if ((dir = opendir(tempDir)) == NULL)
+    {
         perror("opendir() error");
         return;
     }
 
     printf("Archivos convertidos disponibles:\n");
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) { // Si es un archivo regular
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (entry->d_type == DT_REG)
+        { // Si es un archivo regular
             snprintf(filePath, sizeof(filePath), "%s/%s", tempDir, entry->d_name);
-            if (stat(filePath, &fileInfo) == 0) {
+            if (stat(filePath, &fileInfo) == 0)
+            {
                 double sizeInMb = fileInfo.st_size / (1024.0 * 1024.0);
                 printf("[%d] (%.2fMB) %s\n", i++, sizeInMb, filePath);
             }
@@ -61,15 +73,17 @@ int isValidEncoding(const char *encoding)
 
 int checkComingArgs(int argc, char *argv[], char **filePath, char **encoding)
 {
+
     int fFlag = 0, eFlag = 0; // Flags para detectar -f y -e
 
     for (int i = 1; i < argc; i++)
     {
         if (strcmp(argv[i], "-f") == 0)
         {
-            if (i + 1 < argc && argv[i + 1][0] != '-')
+
+            if (i + 1 < argc)
             {
-                *filePath = argv[++i]; // Asume que el siguiente argumento es el valor de FILE
+                *filePath = argv[++i]; // Asume que el siguiente argumento es el valor de FILE por eso el ++i
                 fFlag = 1;             // Marca que se encontró -f
             }
             else
@@ -108,11 +122,6 @@ int checkComingArgs(int argc, char *argv[], char **filePath, char **encoding)
     }
 
     // Aquí, la lógica para manejar los argumentos válidos
-    printf("Archivo: %s\n", *filePath);
-    if (eFlag)
-    {
-        printf("Encoding: %s\n", *encoding);
-    }
 
     return 0;
 }
@@ -197,14 +206,17 @@ int processDirectory(const char *directoryPath, char ***filesList, int *listSize
     return 1; // Success
 }
 
-void convert_to_format(const char *input_file, const char *output_format, const char *tempDir)
+int convert_to_format(const char *input_file, const char *output_format, char **audioBuffer, double *fileSize)
 {
-    char output_file[512];
+    char output_file[1024];
+    char command[1024];
+
     // Hacemos una copia del input_file para usar con basename, ya que puede modificar la entrada
     char *input_copy = strdup(input_file);
-    if (!input_copy) {
+    if (!input_copy)
+    {
         perror("Error al duplicar el nombre del archivo");
-        return;
+        return 1;
     }
 
     // Obtiene el nombre base del archivo (sin la ruta)
@@ -212,64 +224,77 @@ void convert_to_format(const char *input_file, const char *output_format, const 
 
     // Encuentra y elimina la extensión .aif o .aiff
     char *dot = strrchr(base, '.');
-    if (dot && (strcmp(dot, ".aif") == 0 || strcmp(dot, ".aiff") == 0)) {
+    if (dot && (strcmp(dot, ".aif") == 0 || strcmp(dot, ".aiff") == 0))
+    {
         *dot = '\0'; // Corta la cadena en el punto, eliminando la extensión
     }
 
-    // Construye la ruta de salida en la carpeta temporal sin la extensión original .aif o .aiff
-    snprintf(output_file, sizeof(output_file), "%s/%s.%s", tempDir, base, output_format);
-
-    // Aquí sigue el resto de tu función convert_to_format...
+    if (audioBuffer != NULL)
+    {
+        output_file[0] = '-';
+    }
+    else
+    {
+        snprintf(output_file, 1024, "%s.%s", input_copy, output_format);
+    }
 
     free(input_copy); // Libera la memoria de la copia del nombre del archivo
 
-    char command[1024];
-
-    printf("Convirtiendo %s a formato %s...\n", input_file, output_format);
-
-    // Selecciona los parámetros de conversión basados en el formato de salida
-    if (strcmp(output_format, "mp3") == 0)
+    if (strcmp(output_format, "aac") == 0)
     {
-        // Para MP3, especificamos la tasa de bits
-        snprintf(command, sizeof(command), "ffmpeg -i '%s' -codec:a libmp3lame -b:a 192k '%s'", input_file, output_file);
-    }
-    else if (strcmp(output_format, "wav") == 0)
-    {
-        // WAV no necesita codecs especiales, pero podríamos especificar opciones si fuera necesario
-        snprintf(command, sizeof(command), "ffmpeg -i '%s' '%s'", input_file, output_file);
-    }
-    else if (strcmp(output_format, "aac") == 0)
-    {
-        // Para AAC, especificamos el codec
-        snprintf(command, sizeof(command), "ffmpeg -i '%s' -codec:a aac -b:a 128k '%s'", input_file, output_file);
-    }
-    else if (strcmp(output_format, "flac") == 0)
-    {
-        // FLAC puede especificar la calidad de compresión, pero usamos la configuración predeterminada aquí
-        snprintf(command, sizeof(command), "ffmpeg -i '%s' -codec:a flac '%s'", input_file, output_file);
-    }
-    else if (strcmp(output_format, "ogg") == 0)
-    {
-        // Para OGG, especificamos el codec Vorbis
-        snprintf(command, sizeof(command), "ffmpeg -i '%s' -codec:a libvorbis -qscale:a 3 '%s'", input_file, output_file);
+        snprintf(command, sizeof(command), "ffmpeg -loglevel 0 -y -i '%s' -f adts %s", input_file, output_file);
     }
     else
     {
-        // Si el formato no es reconocido, imprime un error y sale
-        fprintf(stderr, "Formato de salida no reconocido: %s\n", output_format);
-        return;
+        snprintf(command, sizeof(command), "ffmpeg -loglevel 0 -y -i '%s' -f %s \"%s\"", input_file, output_format, output_file);
     }
 
-    // Ejecuta el comando FFmpeg
-    int result = system(command);
-    if (result != 0)
+    if (audioBuffer != NULL)
     {
-        fprintf(stderr, "Error al convertir el archivo a formato %s.\n", output_format);
+        FILE *pipe = popen(command, "r");
+
+        if (pipe == NULL)
+        {
+            perror("popen");
+            return 1;
+        }
+
+        size_t bytesWritten;
+        char buffer[1024];
+        int result_len = 0;
+
+        // Read the output into the buffer
+        while ((bytesWritten = fread(buffer, 1, BUFFER_SIZE, pipe)) > 0)
+        {
+            size_t len = bytesWritten;
+
+            char *str = realloc(*audioBuffer, result_len + len);
+            if (!str)
+            {
+                free(audioBuffer);
+                return 1;
+            }
+            *audioBuffer = str;
+            memcpy(*audioBuffer + result_len, buffer, bytesWritten);
+            result_len += len;
+        }
+
+        *fileSize = (double)result_len;
     }
     else
     {
-        printf("Conversión completada: %s\n", output_file);
+        int result = system(command);
+        if (result != 0)
+        {
+            fprintf(stderr, "Error al convertir el archivo a formato %s.\n", output_format);
+        }
+        else
+        {
+            printf("Conversión completada: %s\n", output_file);
+        }
     }
+
+    return 0;
 }
 
 // Definición de estructura para pasar datos al hilo
@@ -277,18 +302,19 @@ struct ThreadData
 {
     char *inputFilePath;
     char *outputFormat;
-    char *tempDir; // Nuevo campo para el directorio temporal
+    // Inputs opcionales
+    char **audioBuffer;
+    double *fileSize;
 };
 
 // Función que será ejecutada por cada hilo
 void *threadConvert(void *arg)
 {
+
     struct ThreadData *data = (struct ThreadData *)arg;
-    convert_to_format(data->inputFilePath, data->outputFormat, data->tempDir);
+    convert_to_format(data->inputFilePath, data->outputFormat, data->audioBuffer, data->fileSize);
     free(data->inputFilePath);
     free(data->outputFormat);
-    free(data->tempDir); // Liberar memoria asignada en el hilo
-    free(data);          // Liberar estructura ThreadData
     pthread_exit(NULL);
 }
 
@@ -329,6 +355,9 @@ void process_files_parallel(const char *directoryPath, const char *encoding, cha
             fprintf(stderr, "Error de asignación de memoria.\n");
             exit(1);
         }
+
+        data->audioBuffer = NULL;
+        data->fileSize = NULL;
         // Crear un hilo para convertir el archivo
         if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0)
         {
@@ -362,21 +391,21 @@ void process_files(const char *directoryPath, const char *encoding, char **files
 
 int main(int argc, char *argv[])
 {
-    char *filePath;
-    char *encoding;
+    char *filePath = NULL;
+    char *encoding = NULL;
     char **aiffFilesList;
     int aiffFilesCount;
 
     // Verifica los argumentos y obtiene filePath y encoding si están presentes
     if (checkComingArgs(argc, argv, &filePath, &encoding) == 0)
     {
+
         // No hubo error, el programa puede continuar
         printf("Archivo a procesar: %s\n", filePath);
         if (encoding != NULL)
         {
             printf("Encoding especificado: %s\n", encoding);
         }
-        // Aquí puedes continuar con la lógica de tu programa usando filePath y encoding
     }
     else
     {
@@ -400,17 +429,9 @@ int main(int argc, char *argv[])
                 printf("Advertencia: El parámetro -e= no es necesario para la conversión de un único archivo AIFF.\n");
             }
 
-            // Antes de iniciar la conversión en paralelo
-            char tempDirTemplate[] = "/tmp/myapp-XXXXXX";
-            char *tempDir = mkdtemp(tempDirTemplate);
-            if (tempDir == NULL)
-            {
-                perror("Error al crear directorio temporal");
-                exit(EXIT_FAILURE); // Asegúrate de manejar este error adecuadamente
-            }
-            printf("Directorio temporal creado en: %s\n", tempDir);
-
             pthread_t threads[validFormatsCount]; // Creamos un arreglo de hilos
+            ConvertedAudioBuffer convertedAudios[validFormatsCount];
+            SelectView *fileFormatSelectView;
 
             // Creamos un hilo para cada formato y realizamos la conversión en paralelo
             for (int i = 0; i < validFormatsCount; ++i)
@@ -422,9 +443,6 @@ int main(int argc, char *argv[])
                     fprintf(stderr, "Error de asignación de memoria.\n");
                     return 1;
                 }
-
-                data->tempDir = strdup(tempDir);
-
                 // Configuramos los datos para este hilo
                 data->inputFilePath = strdup(filePath);
                 if (!data->inputFilePath)
@@ -441,6 +459,11 @@ int main(int argc, char *argv[])
                     free(data);
                     return 1;
                 }
+
+                convertedAudios[i].audioBuffer = NULL;
+                convertedAudios[i].fileFormat = strdup(validFormats[i]);
+                data->audioBuffer = &convertedAudios[i].audioBuffer;
+                data->fileSize = &convertedAudios[i].fileSize;
 
                 // Creamos el hilo
                 if (pthread_create(&threads[i], NULL, threadConvert, (void *)data) != 0)
@@ -459,7 +482,34 @@ int main(int argc, char *argv[])
                 pthread_join(threads[i], NULL);
             }
 
-            listConvertedFiles(tempDir); // Listar los archivos convertidos
+            char *formatSelections[validFormatsCount];
+
+            for (int i = 0; i < validFormatsCount; ++i)
+            {
+                formatSelections[i] = malloc(sizeof(char) * 30);
+                snprintf(formatSelections[i], 30, "%s) %.5f MB\n", convertedAudios[i].fileFormat, convertedAudios[i].fileSize / (1024.0 * 1024.0));
+            }
+
+            fileFormatSelectView = createSelectView("Selecciona uno de los formatos", formatSelections, validFormatsCount, "Escoge un numero:");
+
+            int selectedFileFormat = enableSelectView(fileFormatSelectView) - 1;
+
+            FILE *outputFile;
+            char outputFileName[1024];
+            char *dot = strrchr(filePath, '.');
+            *dot = '\0';
+
+            snprintf(outputFileName, 1024, "%s.%s", filePath, convertedAudios[selectedFileFormat].fileFormat);
+
+            outputFile = fopen(outputFileName, "wb");
+
+            if (outputFile == NULL)
+            {
+                perror("fopen");
+                return 1;
+            }
+            fwrite(convertedAudios[selectedFileFormat].audioBuffer, 1, convertedAudios[selectedFileFormat].fileSize, outputFile);
+            printf("\ndone %s with option %d\n,", outputFileName, selectedFileFormat);
         }
         else
         {
@@ -487,13 +537,7 @@ int main(int argc, char *argv[])
                 return 1;
             }
             printf("Se encontraron %d archivos AIFF para procesar.\n", aiffFilesCount);
-            // Aquí tienes un array 'aiffFilesList' con 'aiffFilesCount' elementos para procesar
-            // Después de llamar a processDirectory
-            printf("Archivos AIFF encontrados para procesar:\n");
-            for (int i = 0; i < aiffFilesCount; ++i)
-            {
-                printf("%d: %s\n", i + 1, aiffFilesList[i]);
-            }
+
             // process_directory(filePath, encoding);
             process_files(filePath, encoding, aiffFilesList, aiffFilesCount);
         }
